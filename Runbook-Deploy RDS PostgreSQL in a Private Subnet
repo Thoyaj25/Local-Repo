@@ -1,0 +1,168 @@
+#Runbook: Deploy RDS PostgreSQL in a Private Subnet (https://chatgpt.com/s/t_6878f51ff07c8191bdfdcd072b061b83)
+1. Purpose
+Provision a completely private PostgreSQL database on AWS RDS, isolated in two private subnets across AZs, using a single CloudFormation stack.
+2. Scope
+Creates: VPC, two private subnets, security group, DB subnet group, RDS PostgreSQL instance
+Does not expose the database publicly
+Enables connectivity only from within the VPC
+A VPC (10.0.0.0/16)
+A single private subnet (10.0.1.0/24)
+A Security Group allowing PostgreSQL (port 5432) only from inside the VPC
+An RDS PostgreSQL instance in that private subnet
+Outputs for VPC ID, Subnet ID, DB endpoint & port
+1. CloudFormation Template (vpc-private-postgres.yml):
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 
+  VPC + Private Subnet + RDS PostgreSQL in private subnet
+Parameters:
+  DBUsername:
+    Type: String
+    Default: postgres
+    Description: Master username for the PostgreSQL RDS instance
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for RDS
+  DBName:
+    Type: String
+    Default: mydatabase
+    Description: Initial database name
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    Description: Allocated storage (GiB)
+
+Resources:
+
+  # 1. VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: myVPC
+
+  # 2. Private Subnet
+  MyPrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-1a
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: myPrivateSubnet
+
+  MyPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: us-east-1b
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: myPrivateSubnetB
+
+  # 3. Security Group for RDS
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from within VPC
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+
+  # 4. DB Subnet Group (must include at least 1—but RDS recommends 2)
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnets for RDS
+      SubnetIds:
+        - !Ref MyPrivateSubnet
+        - !Ref MyPrivateSubnetB
+
+
+  # 5. RDS PostgreSQL Instance
+  MyPostgresDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: postgres
+      EngineVersion: '14.18'             # or choose any supported version
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp2
+      PubliclyAccessible: false
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBName: !Ref DBName
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      MultiAZ: false
+      DeletionProtection: false
+
+Outputs:
+  VpcId:
+    Description: The ID of the VPC
+    Value: !Ref MyVPC
+
+  PrivateSubnetId:
+    Description: The ID of the private subnet
+    Value: !Ref MyPrivateSubnet
+
+  DBEndpoint:
+    Description: The PostgreSQL endpoint (DNS)
+    Value: !GetAtt MyPostgresDB.Endpoint.Address
+
+  DBPort:
+    Description: The PostgreSQL listener port
+    Value: !GetAtt MyPostgresDB.Endpoint.Port
+2. Deploy the Stack in the AWS Console:
+Open the AWS Console → CloudFormation → Create stack → With new resources (standard).
+
+Template: Choose Upload a template file, select vpc-private-postgres.yml.
+
+Stack name: e.g. demo-vpc-postgres.
+
+Parameters:
+
+DBUsername (default postgres)
+
+DBPassword (enter a strong password)
+
+DBName (e.g. mydatabase)
+
+DBAllocatedStorage (e.g. 20)
+
+Click Next, Next, check I acknowledge that this template may create IAM resources, then Create stack.
+
+Watch the Events tab: wait until CREATE_COMPLETE (5–7 min).
+3. Launch a “Jump” EC2 in the Private Subnet: 
+EC2 → Launch Instance
+
+AMI: Amazon Linux 2
+
+Instance type: t3.micro
+
+Network settings:
+
+VPC: select myVPC
+
+Subnet: select myPrivateSubnet
+
+Auto-assign public IP: Disable
+
+IAM role: attach a role with AmazonSSMManagedInstanceCore
+
+Security group: allow SSM (port 443 outbound) and if you need SSH.
+
+
+
