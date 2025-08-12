@@ -1,4 +1,4 @@
-#Runbook: Deploy RDS PostgreSQL in a Private Subnet (https://chatgpt.com/s/t_6878f51ff07c8191bdfdcd072b061b83)
+#Runbook: Deploy RDS PostgreSQL in a Private Subnet via CFT(https://chatgpt.com/s/t_6878f51ff07c8191bdfdcd072b061b83)
 1. Purpose
 Provision a completely private PostgreSQL database on AWS RDS, isolated in two private subnets across AZs, using a single CloudFormation stack.
 2. Scope
